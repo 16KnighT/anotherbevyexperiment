@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, transform};
 use bevy::window::PrimaryWindow;
 
 pub const CAMERA_SPEED: f32 = 15.0;
@@ -6,14 +6,19 @@ pub const CAMERA_SPEED: f32 = 15.0;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_event::<MouseFire>()
         .init_resource::<CursorToPlane>()
         .add_systems(Startup, scene_setup)
         .add_systems(Startup, cursor_setup)
         .add_systems(Update, controller)
         .add_systems(Update, cursor_update)
-        .add_systems(Update, player_to_cursor_gizmo)
+        .add_systems(Update, wand_aiming)
+        .add_systems(Update, particle_update)
         .run();
 }
+
+#[derive(Event)]
+pub struct MouseFire;
 
 #[derive(Resource, Default)]
 pub struct CursorToPlane {
@@ -28,6 +33,12 @@ pub struct GroundPlane;
 
 #[derive(Component)]
 pub struct GameCursor;
+
+#[derive(Component)]
+pub struct Particle {
+    direction: Vec3,
+    ttl: Timer,
+}
 
 fn scene_setup(
     mut commands: Commands,
@@ -100,6 +111,7 @@ fn cursor_setup (
 }
 
 pub fn controller(
+    mut e_mouse_fire: EventWriter<MouseFire>,
     keyboard_input: Res<Input<KeyCode>>,
     mouse_input: Res<Input<MouseButton>>,
     mut player_query: Query<&mut Transform, With<Player>>,
@@ -127,8 +139,8 @@ pub fn controller(
 
     player_transform.translation += direction * CAMERA_SPEED * time.delta_seconds();
 
-    if mouse_input.just_pressed(MouseButton::Left){
-        println!("yass");
+    if mouse_input.pressed(MouseButton::Left){
+        e_mouse_fire.send(MouseFire);
     }
 
 }
@@ -176,17 +188,57 @@ pub fn cursor_update (
     );
 }
 
-fn player_to_cursor_gizmo (
+fn wand_aiming (
     mut gizmos: Gizmos,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut e_mouse_fire: EventReader<MouseFire>,
     q_player: Query<&Transform, With<Player>>,
     r_cursor: Res<CursorToPlane>,
 ) {
     let player_pos = q_player.get_single().unwrap().translation;
-    let local_cursor_dir = (r_cursor.pos - player_pos).normalize() * 5.0;
+    let mut local_cursor_dir = (r_cursor.pos - player_pos).normalize();
+    local_cursor_dir.y = 0.0;
 
     gizmos.ray(
         player_pos,
-        local_cursor_dir,
+        local_cursor_dir  * 5.0,
         Color::BLUE,
-    )
+    );
+
+    for _fire in e_mouse_fire.iter() {
+        commands.spawn((
+            PbrBundle {
+                mesh: meshes.add(Mesh::from(shape::UVSphere { radius: 0.1, ..default() })),
+                material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+                transform: Transform::from_translation(player_pos + (local_cursor_dir * 5.0)),
+                ..default()
+            },
+            Particle {
+                direction: local_cursor_dir,
+                ttl: Timer::from_seconds(5.0, TimerMode::Once),
+            }
+        ));
+    }
+}
+
+pub fn particle_update (
+    mut q_particles: Query<(Entity, &mut Particle, &mut Transform)>,
+    mut commands: Commands,
+    time: Res<Time>,
+) {
+    for (entity, mut particle, mut particle_transform) in q_particles.iter_mut() {
+        //tick the particle's despawn timer
+        particle.ttl.tick(time.delta());
+
+        //despawn if the timer's finished
+        if particle.ttl.finished() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        //otherwise, move the particle
+        particle_transform.translation += particle.direction * time.delta_seconds() * 5.0;
+    }
 }
