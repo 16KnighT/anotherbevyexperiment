@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::render::mesh::shape::Plane;
 use bevy::window::PrimaryWindow;
 
 pub const CAMERA_SPEED: f32 = 15.0;
@@ -7,13 +6,19 @@ pub const CAMERA_SPEED: f32 = 15.0;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .init_resource::<CursorToPlane>()
         .add_systems(Startup, scene_setup)
+        .add_systems(Startup, cursor_setup)
         .add_systems(Update, controller)
-        .add_systems(Update, cursor_to_ground)
+        .add_systems(Update, cursor_update)
+        .add_systems(Update, player_to_cursor_gizmo)
         .run();
 }
 
 #[derive(Resource, Default)]
+pub struct CursorToPlane {
+    pos: Vec3,
+}
 
 #[derive(Component)]
 pub struct Player;
@@ -22,7 +27,7 @@ pub struct Player;
 pub struct GroundPlane;
 
 #[derive(Component)]
-pub struct CursorPoint;
+pub struct GameCursor;
 
 fn scene_setup(
     mut commands: Commands,
@@ -68,16 +73,30 @@ fn scene_setup(
         },
         GroundPlane,
     ));
+}
 
-    //floating cursor poinr
-    commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::UVSphere {radius: 0.5, ..default() })),
-            material: materials.add(Color::rgb(1.0, 0.0, 0.0).into()),
-            ..default()
-        },
-        CursorPoint,
-    ));
+fn cursor_setup (
+    mut q_window: Query<&mut Window, With<PrimaryWindow>>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    let mut window = q_window.single_mut();
+    window.cursor.visible = false;
+
+    commands.spawn(
+        (
+            ImageBundle {
+                transform: Transform::from_translation(Vec3::ZERO),
+                image: asset_server.load("PNG/white/crosshair005.png").into(),
+                style: Style {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                    },
+                ..default()
+            },
+            GameCursor,
+        )
+    );
 }
 
 pub fn controller(
@@ -114,8 +133,9 @@ pub fn controller(
 
 }
 
-pub fn cursor_to_ground (
-    mut q_cursor: Query<&mut Transform, With<CursorPoint>>,
+pub fn cursor_update (
+    mut q_cursor: Query<&mut Style, With<GameCursor>>,
+    mut r_cursor: ResMut<CursorToPlane>,
     q_window: Query<&Window, With<PrimaryWindow>>,
     q_camera: Query<(&Camera, &GlobalTransform), With<Camera>>,
     q_plane: Query<&GlobalTransform, With<GroundPlane>>,
@@ -125,26 +145,48 @@ pub fn cursor_to_ground (
     let window = q_window.single();
     let mut cursor = q_cursor.single_mut();
 
+    //get the cursor position if it exists
     let Some(cursor_position) = window.cursor_position() else {
         return;
     };
 
+    //change the position of the custom cursor
+    cursor.left = Val::Px(cursor_position.x - 32.0);
+    cursor.top = Val::Px(cursor_position.y - 32.0);
+
+    //we can define the plane based on it's origin and a normal vector
     let plane_origin = ground_transform.translation();
-    let plane = Vec3::Y;
+    let plane_normal = Vec3::Y;
 
     let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
-    let Some(distance) = ray.intersect_plane(plane_origin, plane) else {
+    //intersect_plane handles the vector math and works out where the camera ray intersects the ground
+    let Some(distance) = ray.intersect_plane(plane_origin, plane_normal) else {
         return;
     };
 
+    //we can now get the position of the cursor from the distance it is down the ray
     let global_cursor = ray.get_point(distance);
+    r_cursor.pos = global_cursor;
 
     eprintln!("Global cursor coords: {}/{}/{}",
         global_cursor.x, global_cursor.y, global_cursor.z
     );
+}
 
-    cursor.translation = global_cursor;
+fn player_to_cursor_gizmo (
+    mut gizmos: Gizmos,
+    q_player: Query<&Transform, With<Player>>,
+    r_cursor: Res<CursorToPlane>,
+) {
+    let player_pos = q_player.get_single().unwrap().translation;
+    let local_cursor_dir = (r_cursor.pos - player_pos).normalize() * 5.0;
+
+    gizmos.ray(
+        player_pos,
+        local_cursor_dir,
+        Color::BLUE,
+    )
 }
