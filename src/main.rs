@@ -37,6 +37,8 @@ pub struct GameCursor;
 #[derive(Component)]
 pub struct Particle {
     direction: Vec3,
+    speed: f32,
+    acc: f32,
     ttl: Timer,
 }
 
@@ -216,7 +218,9 @@ fn wand_aiming (
                 ..default()
             },
             Particle {
-                direction: local_cursor_dir,
+                direction: local_cursor_dir.normalize(),
+                speed: 15.0,
+                acc: -20.0,
                 ttl: Timer::from_seconds(5.0, TimerMode::Once),
             }
         ));
@@ -239,6 +243,7 @@ pub fn particle_update (
         }
 
         //otherwise, move the particle
-        particle_transform.translation += particle.direction * time.delta_seconds() * 5.0;
+        particle_transform.translation += particle.direction * time.delta_seconds() * particle.speed;
+        particle.speed += particle.acc * time.delta_seconds();
     }
 }
