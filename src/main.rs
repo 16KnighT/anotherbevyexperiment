@@ -13,7 +13,8 @@ fn main() {
         .add_systems(Update, controller)
         .add_systems(Update, cursor_update)
         .add_systems(Update, wand_aiming)
-        .add_systems(Update, particle_update)
+        .add_systems(Update, spell_update)
+        .add_systems(Update, apply_vel)
         .run();
 }
 
@@ -35,11 +36,16 @@ pub struct GroundPlane;
 pub struct GameCursor;
 
 #[derive(Component)]
-pub struct Particle {
+pub struct Spell {
     direction: Vec3,
     speed: f32,
     acc: f32,
     ttl: Timer,
+}
+
+#[derive(Component)]
+pub struct Velocity {
+    vel: Vec3,
 }
 
 fn scene_setup(
@@ -72,6 +78,7 @@ fn scene_setup(
             ..default()
         },
         Player,
+        Velocity {vel: Vec3::ZERO},
     )).id();
 
     commands.entity(player).push_children(&[camera]);
@@ -86,6 +93,26 @@ fn scene_setup(
         },
         GroundPlane,
     ));
+
+    //obstacles
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(shape::Cube { size: 10.0 }.into()),
+            material: materials.add(Color::rgb(0.0, 1.0, 0.5).into()),
+            transform: Transform::from_translation(Vec3::new(12.0, 0.0, 12.0)),
+            ..default()
+        },
+    ));
+
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(shape::Cube { size: 10.0 }.into()),
+            material: materials.add(Color::rgb(0.0, 1.0, 0.5).into()),
+            transform: Transform::from_translation(Vec3::new(-12.0, 0.0, 12.0)),
+            ..default()
+        },
+    ));
+
 }
 
 fn cursor_setup (
@@ -116,10 +143,9 @@ pub fn controller(
     mut e_mouse_fire: EventWriter<MouseFire>,
     keyboard_input: Res<Input<KeyCode>>,
     mouse_input: Res<Input<MouseButton>>,
-    mut player_query: Query<&mut Transform, With<Player>>,
-    time: Res<Time>,
+    mut player_query: Query<&mut Velocity, With<Player>>,
 ) {
-    let mut player_transform = player_query.single_mut();
+    let mut player_velocity = player_query.single_mut();
     let mut direction = Vec3::ZERO;
 
     if keyboard_input.pressed(KeyCode::A) {
@@ -139,12 +165,21 @@ pub fn controller(
         direction = direction.normalize();
     }
 
-    player_transform.translation += direction * CAMERA_SPEED * time.delta_seconds();
+    player_velocity.vel = direction * CAMERA_SPEED;
 
     if mouse_input.pressed(MouseButton::Left){
         e_mouse_fire.send(MouseFire);
     }
 
+}
+
+pub fn apply_vel (
+    mut vel_and_transform: Query<(&Velocity, &mut Transform)>,
+    time: Res<Time>,
+) {
+    for (vel, mut transform) in vel_and_transform.iter_mut() {
+        transform.translation += vel.vel * time.delta_seconds();
+    }
 }
 
 pub fn cursor_update (
@@ -209,41 +244,49 @@ fn wand_aiming (
         Color::BLUE,
     );
 
+    //settings for current spell
+    let sp = 50.0;
+
     for _fire in e_mouse_fire.iter() {
         commands.spawn((
             PbrBundle {
                 mesh: meshes.add(Mesh::from(shape::UVSphere { radius: 0.1, ..default() })),
-                material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+                material: materials.add(Color::rgb(0.0, 0.1, 0.8).into()),
                 transform: Transform::from_translation(player_pos + (local_cursor_dir * 5.0)),
                 ..default()
             },
-            Particle {
+            Spell {
                 direction: local_cursor_dir.normalize(),
-                speed: 15.0,
-                acc: -20.0,
+                speed: sp,
+                acc: 0.0,
                 ttl: Timer::from_seconds(5.0, TimerMode::Once),
+            },
+            Velocity {
+                vel: local_cursor_dir.normalize() * sp,
             }
         ));
     }
 }
 
-pub fn particle_update (
-    mut q_particles: Query<(Entity, &mut Particle, &mut Transform)>,
+pub fn spell_update (
+    mut q_spells: Query<(Entity, &mut Spell, &mut Transform)>,
     mut commands: Commands,
     time: Res<Time>,
 ) {
-    for (entity, mut particle, mut particle_transform) in q_particles.iter_mut() {
-        //tick the particle's despawn timer
-        particle.ttl.tick(time.delta());
+    for (entity, mut spell, mut spell_transform) in q_spells.iter_mut() {
+        //tick the spell's despawn timer
+        spell.ttl.tick(time.delta());
 
         //despawn if the timer's finished
-        if particle.ttl.finished() {
+        if spell.ttl.finished() {
             commands.entity(entity).despawn();
             continue;
         }
 
-        //otherwise, move the particle
-        particle_transform.translation += particle.direction * time.delta_seconds() * particle.speed;
-        particle.speed += particle.acc * time.delta_seconds();
+        //otherwise, move the spell
+        /*
+        spell_transform.translation += spell.direction * time.delta_seconds() * spell.speed;
+        spell.speed += spell.acc * time.delta_seconds();
+        */
     }
 }
