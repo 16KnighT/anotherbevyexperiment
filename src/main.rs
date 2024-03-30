@@ -1,11 +1,14 @@
-use bevy::{prelude::*, transform};
+use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+
+mod collision;
+use collision::CollisionPlugin;
 
 pub const CAMERA_SPEED: f32 = 15.0;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, CollisionPlugin))
         .add_event::<MouseFire>()
         .init_resource::<CursorToPlane>()
         .add_systems(Startup, scene_setup)
