@@ -59,7 +59,7 @@ impl Collider {
             transformed_points: points.clone(),
         }
     }
-} 
+}
 
 //transform should be applied before the support function is called because currently the transformed_points will be wrong for the first frame
 pub fn apply_transform_collider (
@@ -84,15 +84,67 @@ pub fn collision_update (
 ) {
     //checks every collider against every other collider
     for [s1, s2] in col.iter_combinations() {
-        gjk(s1, s2);
+        let result = gjk(s1, s2);
     }
 }
 
 pub fn gjk (
     s1: &Collider,
     s2: &Collider,
-) {
-    support(s1, s2, Vec3::new(1.0,1.0,1.0));
+) -> bool {
+    let mut d = Vec3::new(1.0,1.0,1.0).normalize();
+    let mut simplex = vec![support(s1, s2, d)];
+    d = Vec3::ZERO - simplex[0];
+        loop {
+            let p = support(s1, s2, d);
+            if p.dot(d) > 0.0 {
+                return false;
+            }
+            simplex.push(p);
+            if handle_simplex(simplex, d) {
+                return true;
+            }
+        }
+}
+
+fn handle_simplex(
+    simplex: Vec<Vec3>,
+    mut d: &Vec3,
+) -> bool {
+    if simplex.len() == 2 {
+        return line_case(simplex, d);
+    } else if simplex.len() == 3 {
+        return triangle_case(simplex, d);
+    }
+    return tetrahedron_case(simplex,d);
+}
+
+fn line_case(
+    simplex: Vec<Vec3>,
+    mut d: &Vec3,
+) -> bool {
+    let (pb, pa) = (simplex[0], simplex[1]);
+    let (ab, ao) = (pb - pa, Vec3::ZERO - pa);
+    d = &ab.cross(ao.cross(ab)).normalize();
+    return false;
+}
+
+fn triangle_case(
+    simplex: Vec<Vec3>,
+    mut d: &Vec3,
+) -> bool {
+    let (pc, pb, pa) = (simplex[0], simplex[1], simplex[2]);
+    let (ac, ab, ao) = (pc-pa, pb-pa, Vec3::ZERO - pa);
+    //I believe this should be the normal to the triangle
+    d = &ab.cross(ac).normalize();
+    return false;
+}
+
+fn tetrahedron_case(
+    simplex: Vec<Vec3>,
+    mut d: &Vec3,
+) -> bool {
+    
 }
 
 fn support (
