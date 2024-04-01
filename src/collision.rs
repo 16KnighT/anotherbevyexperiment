@@ -20,19 +20,24 @@ impl Collider {
         match self.shape {
             Shapes::Sphere => {
                 let radius = self.transformed_points[0];
+                //println!("support point 1: {}", d * radius.length());
                 return d * radius.length();
             },
             Shapes::Polyhedron => {
                 let mut max_dot = std::f32::NEG_INFINITY;
                 let mut max_vec = Vec3::ZERO;
 
+                //println!("selected direction: {}", d);
                 for point in &self.transformed_points {
+                    //print!("point {} dotted: ", point);
                     let dotted = point.dot(d);
+                    //println!("{}", dotted);
                     if max_dot < dotted {
                         max_dot = dotted;
                         max_vec = *point;
                     };
                 }
+                //println!("support point 2: {}", max_vec);
                 return max_vec;
                 //I FINISHED HERE
                 /*
@@ -85,78 +90,117 @@ pub fn collision_update (
     //checks every collider against every other collider
     for [s1, s2] in col.iter_combinations() {
         let result = gjk(s1, s2);
+        println!("collision?: {}", result);
     }
 }
 
+
+
+/**
+ * Returns true if objects have collided otherwise false.
+ */
 pub fn gjk (
     s1: &Collider,
     s2: &Collider,
 ) -> bool {
-    let mut d = Vec3::new(1.0,1.0,1.0).normalize();
-    let mut simplex = vec![support(s1, s2, d)];
+    let mut d = Vec3::ONE.normalize();
+    let mut simplex = vec![support(s1, s2, &d)];
     d = Vec3::ZERO - simplex[0];
         loop {
-            let p = support(s1, s2, d);
-            if p.dot(d) > 0.0 {
+            d = d.normalize();
+            println!("selecting new point");
+            let p = support(s1, s2, &d);
+            if p.dot(d) < 0.0 {
+                println!("new point not past origin");
                 return false;
             }
+            println!("new point is past origin");
             simplex.push(p);
-            if handle_simplex(simplex, d) {
+            if handle_simplex(&mut simplex, &mut d) {
                 return true;
             }
+            println!("the origin is not yet surrounded");
         }
 }
 
 fn handle_simplex(
-    simplex: Vec<Vec3>,
-    mut d: &Vec3,
+    mut simplex: &mut Vec<Vec3>,
+    d: &mut Vec3,
 ) -> bool {
     if simplex.len() == 2 {
-        return line_case(simplex, d);
+        println!("line case");
+        *d = line_case(simplex);
+        return false
     } else if simplex.len() == 3 {
-        return triangle_case(simplex, d);
+        println!("triangle case");
+        *d = triangle_case(simplex);
+        return false;
     }
-    return tetrahedron_case(simplex,d);
+    println!("tetrahedron case");
+    return tetrahedron_case(&mut simplex); 
 }
 
+/*
+notation
+p => point
+e.g. pa referes to point a
+two points => vector
+e.g. ao is the vector from a to the origin, ab is a to b, etc...
+ */
 fn line_case(
-    simplex: Vec<Vec3>,
-    mut d: &Vec3,
-) -> bool {
+    simplex: &Vec<Vec3>
+) -> Vec3 {
     let (pb, pa) = (simplex[0], simplex[1]);
-    let (ab, ao) = (pb - pa, Vec3::ZERO - pa);
-    d = &ab.cross(ao.cross(ab)).normalize();
-    return false;
+    let (ab, ao) = (pb - pa, -pa);
+    return ab.cross(ao.cross(ab)).normalize();
 }
 
 fn triangle_case(
-    simplex: Vec<Vec3>,
-    mut d: &Vec3,
-) -> bool {
+    simplex: &Vec<Vec3>
+) -> Vec3 {
+    //i think i can get rid of the variable ao
     let (pc, pb, pa) = (simplex[0], simplex[1], simplex[2]);
-    let (ac, ab, ao) = (pc-pa, pb-pa, Vec3::ZERO - pa);
+    let (ac, ab, ao) = (pc-pa, pb-pa, -pa);
     //I believe this should be the normal to the triangle
-    d = &ab.cross(ac).normalize();
-    return false;
+    return ab.cross(ac).normalize();
 }
 
 fn tetrahedron_case(
-    simplex: Vec<Vec3>,
-    mut d: &Vec3,
+    simplex: &mut Vec<Vec3>
 ) -> bool {
-    
+    let (pd, pc, pb, pa) = (simplex[0], simplex[1], simplex[2], simplex[3]);
+    //region abc
+    let (ab, ac, ad, ao) = (pb - pa, pc - pa, pd - pa, -pa);
+    if (ao.dot(ab.cross(ac))) > 0.0 {
+        //the origin is past region abc therefore we need to remove point d
+        println!("removing point d");
+        simplex.remove(0);
+        return false
+    }
+    //region acd
+    if (ao.dot(ac.cross(ad))) > 0.0 {
+        //the origin is past the region acd therefore we need to get rid of point b
+        println!("removing point b");
+        simplex.remove(2);
+        return false;
+    }
+    //region adb
+    if (ao.dot(ab.cross(ad))) > 0.0 {
+        //the origin is past the region adb therefore we need to get rid of point c
+        println!("removing point c");
+        simplex.remove(1);
+        return false;
+    }
+
+    return true;
 }
 
 fn support (
     s1: &Collider,
     s2: &Collider,
-    d: Vec3,
+    d: &Vec3,
 ) -> Vec3 {
-    //for debug case
-    assert_eq!(s1.support(d), Vec3::new(1.0, 1.0, 1.0));
-    assert_eq!(s2.support(d), Vec3::new(1.0, 1.0, 1.0));
-
-    return s1.support(d) - s2.support(-d);
+    return s1.support(*d) - s2.support(-(*d));
 }
 
 pub fn col_test_case (
@@ -176,12 +220,12 @@ pub fn col_test_case (
     //test cube at (0,0,0), length of all sides are 2
     commands.spawn( (
         Collider::poly_from_points(points),
-        Transform::from_translation(Vec3::ZERO),
+        Transform::from_translation(Vec3::new(2.0, 2.0, 2.0)),
     ));
 
     //test sphere at (0,0,0), radius of 1
     commands.spawn((
-        Collider::sphere_from_radius(1.0),
+        Collider::sphere_from_radius(2.0),
         Transform::from_translation(Vec3::ZERO),
     ));
 }
