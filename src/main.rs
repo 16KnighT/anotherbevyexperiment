@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 mod collision;
-use collision::CollisionPlugin;
+use collision::*;
 
 pub const CAMERA_SPEED: f32 = 15.0;
 
@@ -266,7 +266,8 @@ fn wand_aiming (
             },
             Velocity {
                 vel: local_cursor_dir.normalize() * sp,
-            }
+            },
+            Collider::sphere_from_radius(0.1),
         ));
     }
 }

@@ -19,9 +19,9 @@ impl Collider {
     fn support(&self, d: Vec3) -> Vec3 {
         match self.shape {
             Shapes::Sphere => {
-                let radius = self.transformed_points[0];
+                let radius = self.transformed_points[0][0];
                 //println!("support point 1: {}", d * radius.length());
-                return d * radius.length();
+                return d * radius;
             },
             Shapes::Polyhedron => {
                 let mut max_dot = std::f32::NEG_INFINITY;
@@ -50,14 +50,14 @@ impl Collider {
         }
     }
     //these constructor functions will ensure that different shape types will be made in specific ways
-    fn sphere_from_radius(radius: f32) -> Self {
+    pub fn sphere_from_radius(radius: f32) -> Self {
         return Self {
             shape: Shapes::Sphere,
             local_points: vec![Vec3::new(radius, 0.0, 0.0)],
             transformed_points: vec![Vec3::new(radius, 0.0, 0.0)],
         }
     }
-    fn poly_from_points(points: Vec<Vec3>) -> Self {
+    pub fn poly_from_points(points: Vec<Vec3>) -> Self {
         return Self {
             shape: Shapes::Polyhedron,
             local_points: points.clone(),
@@ -238,7 +238,40 @@ impl Plugin for CollisionPlugin {
             collision_update,
             apply_transform_collider
                 .before(collision_update),
-        ))
-            .add_systems(Startup, col_test_case);
+        ));
+            //.add_systems(Startup, col_test_case);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn support_test() { //tests if the support function returns the correct points
+        let points = vec![
+            Vec3::new(1.0,1.0,1.0),
+            Vec3::new(1.0,1.0,-1.0),
+            Vec3::new(1.0,-1.0,1.0),
+            Vec3::new(1.0,-1.0,-1.0),
+            Vec3::new(-1.0,1.0,1.0),
+            Vec3::new(-1.0,1.0,-1.0),
+            Vec3::new(-1.0,-1.0,1.0),
+            Vec3::new(-1.0,-1.0,-1.0),
+        ];
+        let cube = Collider::poly_from_points(points);
+        let sphere = Collider::sphere_from_radius(3.0);
+
+        let mut d = Vec3::new(1.0, 1.0, 1.0).normalize();
+
+        assert_eq!(cube.support(d), Vec3::ONE, "support returned {}", cube.support(d));
+
+        assert_eq!(sphere.support(d), Vec3::ONE * 3.0, "support returned {}", cube.support(d));
+
+        d = Vec3::new(0.8, 0.8, 0.8).normalize();
+
+        assert_eq!(cube.support(d), Vec3::ONE, "support returned {}", cube.support(d));
+
+        assert_eq!(sphere.support(d), Vec3::ONE * 3.0, "support returned {}", sphere.support(d));
     }
 }
