@@ -19,9 +19,10 @@ impl Collider {
     fn support(&self, d: Vec3) -> Vec3 {
         match self.shape {
             Shapes::Sphere => {
-                let radius = self.transformed_points[0][0];
-                //println!("support point 1: {}", d * radius.length());
-                return d * radius;
+                let radius = self.transformed_points[0];
+                let centre = radius - self.local_points[0];
+
+                return centre + (d * self.local_points[0][0]);
             },
             Shapes::Polyhedron => {
                 let mut max_dot = std::f32::NEG_INFINITY;
@@ -245,10 +246,12 @@ impl Plugin for CollisionPlugin {
 
 #[cfg(test)]
 mod tests {
+    use bevy::render::render_resource::encase::rts_array::Length;
+
     use super::*;
 
     #[test]
-    fn support_test() { //tests if the support function returns the correct points
+    fn support_test_when_local() { //tests if the support function returns the correct points
         let points = vec![
             Vec3::new(1.0,1.0,1.0),
             Vec3::new(1.0,1.0,-1.0),
@@ -262,16 +265,97 @@ mod tests {
         let cube = Collider::poly_from_points(points);
         let sphere = Collider::sphere_from_radius(3.0);
 
-        let mut d = Vec3::new(1.0, 1.0, 1.0).normalize();
+        //direction pointing stright up so the returned point should be the origin plus the radius in the y axis
+        let mut d = Vec3::new(0.0, 1.0, 0.0).normalize();
+        assert_eq!(sphere.support(d), Vec3::new(0.0, 3.0, 0.0), "support returned {}", sphere.support(d));
 
+        //same test but now in the y axis
+        d = Vec3::new(0.0, 0.0, 0.1).normalize();
+        assert_eq!(sphere.support(d), Vec3::new(0.0, 0.0, 3.0), "support returned {}", sphere.support(d));
+
+        //d is pointing the the corner of the cube
+        d = Vec3::new(1.0, 1.0, 1.0).normalize();
         assert_eq!(cube.support(d), Vec3::ONE, "support returned {}", cube.support(d));
 
-        assert_eq!(sphere.support(d), Vec3::ONE * 3.0, "support returned {}", cube.support(d));
+        //d is pointing to another corner
+        d = Vec3::new(-1.0,1.0,-1.0).normalize();
+        assert_eq!(cube.support(d), Vec3::new(-1.0, 1.0,-1.0), "support returned {}", cube.support(d));
+       
+    }
 
-        d = Vec3::new(0.8, 0.8, 0.8).normalize();
+    #[test]
+    fn support_test_when_translated() {
+        let points = vec![
+            Vec3::new(1.0,1.0,1.0),
+            Vec3::new(1.0,1.0,-1.0),
+            Vec3::new(1.0,-1.0,1.0),
+            Vec3::new(1.0,-1.0,-1.0),
+            Vec3::new(-1.0,1.0,1.0),
+            Vec3::new(-1.0,1.0,-1.0),
+            Vec3::new(-1.0,-1.0,1.0),
+            Vec3::new(-1.0,-1.0,-1.0),
+        ];
 
-        assert_eq!(cube.support(d), Vec3::ONE, "support returned {}", cube.support(d));
+        let mut translated_points: Vec<Vec3> = vec![];
 
-        assert_eq!(sphere.support(d), Vec3::ONE * 3.0, "support returned {}", sphere.support(d));
+        for point in 0..points.length() {
+            let new_point = points[point] + Vec3::new(100.0, 234.5, -63.0);
+            translated_points.push(new_point);
+        }
+
+        let cube = Collider {
+            shape: Shapes::Polyhedron,
+            local_points: points,
+            transformed_points: translated_points,
+        };
+        let sphere = Collider {
+            shape: Shapes::Sphere,
+            local_points: vec![Vec3::new(3.0, 0.0, 0.0)],
+            transformed_points: vec![Vec3::new(212.0, -12.2, 17.0)],
+        };
+
+        //for reference the cube's origin is (100, 234.5, -63) and the sphere's origin is (209, -12.2, 17)
+
+        //when d is pointing straight up the returned value should be the vector to it's origin plus it's radius in the direction of the y axis
+        let mut d = Vec3::new(0.0, 1.0, 0.0).normalize();
+        assert_eq!(sphere.support(d), Vec3::new(209.0, -9.2, 17.0), "support returned {}", sphere.support(d));
+         
+        d = Vec3::new(0.0, 0.0, 1.0).normalize();
+        assert_eq!(sphere.support(d), Vec3::new(209.0, -12.2, 20.0), "support returned {}", sphere.support(d));
+        
+        d = Vec3::new(1.0, 1.0, 1.0).normalize();
+        assert_eq!(cube.support(d), Vec3::new(101.0, 235.5, -62.0), "support returned {}", cube.support(d));
+
+        d = Vec3::new(-1.0,1.0,-1.0).normalize();
+        assert_eq!(cube.support(d), Vec3::new(99.0, 235.5, -64.0), "support returned {}", cube.support(d));
+    }
+
+    #[test]
+    fn cube_intersect_cube() {
+        let points = vec![
+            Vec3::new(1.0,1.0,1.0),
+            Vec3::new(1.0,1.0,-1.0),
+            Vec3::new(1.0,-1.0,1.0),
+            Vec3::new(1.0,-1.0,-1.0),
+            Vec3::new(-1.0,1.0,1.0),
+            Vec3::new(-1.0,1.0,-1.0),
+            Vec3::new(-1.0,-1.0,1.0),
+            Vec3::new(-1.0,-1.0,-1.0),
+        ];
+    }
+
+    #[test]
+    fn cube_intersect_sphere() {
+        
+    }
+
+    #[test]
+    fn sphere_intersect_sphere() {
+        
+    }
+
+    #[test]
+    fn close_but_no_intersection() {
+        
     }
 }
