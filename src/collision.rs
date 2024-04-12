@@ -111,10 +111,11 @@ pub fn gjk (
             d = d.normalize();
             println!("selecting new point");
             let p = support(s1, s2, &d);
-            if p.dot(d) < 0.0 {
+            if p.dot(d) <= 0.0 {
                 println!("new point not past origin");
                 return false;
             }
+
             println!("new point is past origin");
             simplex.push(p);
             if handle_simplex(&mut simplex, &mut d) {
@@ -130,15 +131,13 @@ fn handle_simplex(
 ) -> bool {
     if simplex.len() == 2 {
         println!("line case");
-        *d = line_case(simplex);
-        return false
+        return line_case(simplex, d);
     } else if simplex.len() == 3 {
         println!("triangle case");
-        *d = triangle_case(simplex);
-        return false;
+        return triangle_case(simplex, d);
     }
     println!("tetrahedron case");
-    return tetrahedron_case(&mut simplex); 
+    return tetrahedron_case(&mut simplex, d); 
 }
 
 /*
@@ -149,48 +148,74 @@ two points => vector
 e.g. ao is the vector from a to the origin, ab is a to b, etc...
  */
 fn line_case(
-    simplex: &Vec<Vec3>
-) -> Vec3 {
+    simplex: &Vec<Vec3>,
+    direction: &mut Vec3,
+) -> bool {
     let (pb, pa) = (simplex[0], simplex[1]);
     let (ab, ao) = (pb - pa, -pa);
-    return ab.cross(ao.cross(ab)).normalize();
+    *direction = ab.cross(ao.cross(ab));
+    return false;
 }
 
 fn triangle_case(
-    simplex: &Vec<Vec3>
-) -> Vec3 {
+    simplex: &mut Vec<Vec3>,
+    direction: &mut Vec3,
+) -> bool {
     //i think i can get rid of the variable ao
     let (pc, pb, pa) = (simplex[0], simplex[1], simplex[2]);
     let (ac, ab, ao) = (pc-pa, pb-pa, -pa);
-    //I believe this should be the normal to the triangle
-    return ab.cross(ac).normalize();
+    let abc = ab.cross(ac);
+    
+    if abc.cross(ac).dot(ao) > 0.0 {
+        if ac.dot(ao) > 0.0 {
+            simplex.remove(1); //removes b
+            *direction = ac.cross(ao).cross(ac).normalize();
+            return false;
+        } else {
+            simplex.remove(0);
+            return line_case(simplex, direction);
+        }
+    } else {
+        if ab.cross(abc).dot(ao) > 0.0 {
+            simplex.remove(0);
+            return line_case(simplex, direction);
+        } else {
+            if abc.dot(ao) > 0.0 {
+                *direction = abc;
+            } else {
+                simplex.swap(0,1);
+                *direction = -abc;
+            }
+        }
+    }
+
+    return false;
+    
 }
 
 fn tetrahedron_case(
-    simplex: &mut Vec<Vec3>
+    simplex: &mut Vec<Vec3>,
+    direction: &mut Vec3,
 ) -> bool {
     let (pd, pc, pb, pa) = (simplex[0], simplex[1], simplex[2], simplex[3]);
     //region abc
     let (ab, ac, ad, ao) = (pb - pa, pc - pa, pd - pa, -pa);
-    if (ao.dot(ab.cross(ac))) > 0.0 {
-        //the origin is past region abc therefore we need to remove point d
-        println!("removing point d");
+
+    let (abc, acd, adb) = (ab.cross(ac), ac.cross(ad), ad.cross(ab));
+
+    if abc.dot(ac) > 0.0 {
         simplex.remove(0);
-        return false
+        return triangle_case(simplex, direction)
     }
-    //region acd
-    if (ao.dot(ac.cross(ad))) > 0.0 {
-        //the origin is past the region acd therefore we need to get rid of point b
-        println!("removing point b");
+
+    if acd.dot(ao) > 0.0 {
         simplex.remove(2);
-        return false;
+        return triangle_case(simplex, direction)
     }
-    //region adb
-    if (ao.dot(ab.cross(ad))) > 0.0 {
-        //the origin is past the region adb therefore we need to get rid of point c
-        println!("removing point c");
+
+    if adb.dot(ac) > 0.0 {
         simplex.remove(1);
-        return false;
+        return triangle_case(simplex, direction)
     }
 
     return true;
@@ -250,9 +275,7 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn support_test_when_local() { //tests if the support function returns the correct points
-        let points = vec![
+    const POINTS: &[Vec3] = &[
             Vec3::new(1.0,1.0,1.0),
             Vec3::new(1.0,1.0,-1.0),
             Vec3::new(1.0,-1.0,1.0),
@@ -262,6 +285,18 @@ mod tests {
             Vec3::new(-1.0,-1.0,1.0),
             Vec3::new(-1.0,-1.0,-1.0),
         ];
+
+    fn tranform_helper_function(points: &Vec<Vec3>, translation: Vec3) -> Vec<Vec3> {
+        let mut translated_points: Vec<Vec3> = Vec::new();
+        for point in 0..points.length() {
+            translated_points.push(points[point] + translation);
+        }
+        return translated_points;
+    }
+
+    #[test]
+    fn support_test_when_local() { //tests if the support function returns the correct point
+        let points = POINTS.to_vec();
         let cube = Collider::poly_from_points(points);
         let sphere = Collider::sphere_from_radius(3.0);
 
@@ -285,23 +320,9 @@ mod tests {
 
     #[test]
     fn support_test_when_translated() {
-        let points = vec![
-            Vec3::new(1.0,1.0,1.0),
-            Vec3::new(1.0,1.0,-1.0),
-            Vec3::new(1.0,-1.0,1.0),
-            Vec3::new(1.0,-1.0,-1.0),
-            Vec3::new(-1.0,1.0,1.0),
-            Vec3::new(-1.0,1.0,-1.0),
-            Vec3::new(-1.0,-1.0,1.0),
-            Vec3::new(-1.0,-1.0,-1.0),
-        ];
+        let points = POINTS.to_vec();
 
-        let mut translated_points: Vec<Vec3> = vec![];
-
-        for point in 0..points.length() {
-            let new_point = points[point] + Vec3::new(100.0, 234.5, -63.0);
-            translated_points.push(new_point);
-        }
+        let translated_points: Vec<Vec3> = tranform_helper_function(&points, Vec3::new(100.0, 234.5, -63.0));
 
         let cube = Collider {
             shape: Shapes::Polyhedron,
@@ -332,21 +353,34 @@ mod tests {
 
     #[test]
     fn cube_intersect_cube() {
-        let points = vec![
-            Vec3::new(1.0,1.0,1.0),
-            Vec3::new(1.0,1.0,-1.0),
-            Vec3::new(1.0,-1.0,1.0),
-            Vec3::new(1.0,-1.0,-1.0),
-            Vec3::new(-1.0,1.0,1.0),
-            Vec3::new(-1.0,1.0,-1.0),
-            Vec3::new(-1.0,-1.0,1.0),
-            Vec3::new(-1.0,-1.0,-1.0),
-        ];
+        let points = POINTS.to_vec();
+
+        let translated_points = tranform_helper_function(&points, Vec3::new(1.5, 1.5, 1.5));
+        let extra_points = tranform_helper_function(&points, Vec3::new(0.0, 0.0, 0.0));
+
+        let cube1 = Collider {
+            shape: Shapes::Polyhedron,
+            local_points: points,
+            transformed_points: translated_points,
+        };
+
+        let cube2 = Collider::poly_from_points(extra_points);
+
+        assert!(gjk(&cube1, &cube2));
     }
 
     #[test]
     fn cube_intersect_sphere() {
-        
+        let points = POINTS.to_vec();
+        let translated_points = tranform_helper_function(&points, Vec3::new(0.0, 2.5, 0.0));
+        let cube = Collider {
+            shape: Shapes::Sphere,
+            local_points: points,
+            transformed_points: translated_points,
+        };
+        let sphere = Collider::sphere_from_radius(2.0);
+
+        assert!(gjk(&cube, &sphere));
     }
 
     #[test]
